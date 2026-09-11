@@ -118,6 +118,8 @@ data/raw/
 data/processed/
 data/external/
 *.csv
+# Exception: Allow sample data for testing/documentation
+!data/sample/sample.csv
 *.parquet
 *.pkl
 *.pickle
