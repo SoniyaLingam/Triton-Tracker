@@ -26,7 +26,9 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-dependencies = []
+dependencies = [
+    "pydantic==2.10.6",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -35,6 +37,7 @@ dev = [
     "black==23.12.1",
     "flake8==6.1.0",
     "isort==5.13.2",
+    "mypy==1.13.0",
 ]
 
 ml = []
@@ -55,4 +58,5 @@ extend-ignore = ["E203", "W503"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
+pythonpath = ["."]
 addopts = "--cov=src --cov-report=term-missing --cov-report=html"

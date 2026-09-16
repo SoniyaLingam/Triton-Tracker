@@ -817,6 +817,126 @@ This keeps the Day 2 iterator intact while showing how Day 3 patterns fit into t
 
 ---
 
+# Day 4 — Type Hints & Pydantic Configuration
+
+## Overview
+
+Day 4 introduces a validated configuration model for the Tracker pipeline. Instead of passing raw dictionaries around, the project now uses a Pydantic model to guarantee that configuration values are valid before any data processing begins.
+
+## Why Pydantic?
+
+Pydantic is useful for configuration and external input because it performs runtime validation as soon as the model is created. If a field is missing, has the wrong type, or falls outside an allowed range, a `ValidationError` is raised immediately.
+
+This is especially important for ML/data pipelines, where invalid values such as a zero batch size or a missing CSV directory can break processing in confusing ways. Validating at the boundary prevents bad configuration from reaching the pipeline.
+
+## Configuration Model
+
+The Day 4 model lives in `src/config.py` and includes fields such as:
+
+- `data_path`: directory that stores the CSV data
+- `batch_size`: rows processed in each batch
+- `mode`: execution mode (train, evaluate, inference)
+- `device`: CPU or GPU
+- `threshold`: score threshold in a realistic range
+- `feature_columns`: list of required CSV field names
+
+### Example
+
+```python
+from pathlib import Path
+from src.config import DeviceType, PipelineConfig, PipelineMode
+
+config = PipelineConfig(
+    data_path=Path("data/sample"),
+    batch_size=32,
+    mode=PipelineMode.TRAIN,
+    device=DeviceType.CPU,
+    threshold=85.0,
+    feature_columns=["id", "score", "subject"],
+)
+```
+
+## Validation Rules
+
+The configuration model validates the following at creation time:
+
+- `batch_size` must be an integer and greater than 0
+- `threshold` must be between 0 and 100
+- `feature_columns` must not be empty and must contain unique names
+- `data_path` must exist and point to a directory
+- `mode` must be one of the allowed enum values
+- `device` must be one of the allowed enum values
+
+This prevents invalid pipeline setup before processing begins.
+
+## Enum Usage
+
+A fixed-choice field is implemented with `Enum`:
+
+```python
+class PipelineMode(str, Enum):
+    TRAIN = "train"
+    EVALUATE = "evaluate"
+    INFERENCE = "inference"
+```
+
+A second enum is used for device selection:
+
+```python
+class DeviceType(str, Enum):
+    CPU = "cpu"
+    GPU = "gpu"
+```
+
+Invalid values automatically raise a validation error.
+
+## Dataclass vs Pydantic
+
+A dataclass provides conveniences such as auto-generated `__init__`, `__repr__`, and comparisons. It is useful for structured Python objects, but it does not validate input automatically.
+
+Pydantic adds runtime validation. That means a configuration object can reject a bad value immediately, before the data pipeline starts. This is why Pydantic is used for the Tracker pipeline configuration.
+
+## Type Hints and Modern Typing
+
+The code uses modern Python typing in a Python 3.9-compatible way. Examples include:
+
+- `list[str]`
+- `dict[str, Any]`
+- `Optional[str]` where needed
+- `Union[str, int]` or `str | int` only when appropriate for the project version
+
+The key point is that type hints improve readability and help static tools understand the code, even when Python still runs the project dynamically.
+
+## Runtime Validation Demo
+
+The script `scripts/config_demo.py` demonstrates the following failures with `ValidationError` handling:
+
+1. Wrong type for `batch_size`
+2. Out-of-range `batch_size`
+3. Missing required `data_path`
+4. Non-existent `data_path`
+
+A valid configuration is also shown to load successfully.
+
+## Running the Configuration Demo
+
+```bash
+python scripts/config_demo.py
+```
+
+Example output includes field names and short explanations such as:
+
+```text
+Invalid configuration 1:
+batch_size: Input should be a valid integer.
+```
+
+## Day 4 Files
+
+- `src/config.py` — validated pipeline configuration model
+- `scripts/config_demo.py` — demonstration of valid and invalid configuration values
+- `tests/test_config.py` — Day 4 validation tests
+
 ## Next Steps (Day 3+)
 
 - [ ] Add data validation utilities in `src/`

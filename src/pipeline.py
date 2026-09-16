@@ -8,7 +8,7 @@ concrete step implementation.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, List
+from typing import Any, Iterable, List, Union
 
 
 class Step(ABC):
@@ -48,7 +48,7 @@ class CSVDataCleaner(Step):
 class DataFilter(Step):
     """Filter rows where a numeric field meets a minimum threshold."""
 
-    def __init__(self, field_name: str, minimum: int | float):
+    def __init__(self, field_name: str, minimum: Union[int, float]):
         self.field_name = field_name
         self.minimum = minimum
 
@@ -72,7 +72,7 @@ class DataFilter(Step):
 class HighScoreFilter(Step):
     """A second filter implementation that demonstrates runtime swapping."""
 
-    def __init__(self, field_name: str, minimum: int | float):
+    def __init__(self, field_name: str, minimum: Union[int, float]):
         self.field_name = field_name
         self.minimum = minimum
 
@@ -122,7 +122,7 @@ class CSVStatisticsStep(Step):
 
     def process(self, data: List[dict[str, Any]]) -> List[dict[str, Any]]:
         """Add a summary field describing the dataset size."""
-        summary = {"record_count": len(data), "processed": True}
+        summary: dict[str, Any] = {"record_count": len(data), "processed": True}
         if data:
             summary["first_id"] = data[0].get("id")
         return [{**row, "summary": summary.copy()} for row in data]

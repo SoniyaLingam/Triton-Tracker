@@ -8,7 +8,7 @@ ML workflows.
 
 import csv
 from pathlib import Path
-from typing import Iterator, List
+from typing import Any, Iterator, List, Optional, TextIO
 
 
 class CSVBatchIterator:
@@ -44,8 +44,8 @@ class CSVBatchIterator:
         # Initialize attributes first (before validation) to avoid
         # AttributeError in __del__
         self._current_file_index = 0
-        self._current_reader = None
-        self._current_file_handle = None
+        self._current_reader: Optional[csv.DictReader] = None
+        self._current_file_handle: Optional[TextIO] = None
 
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -87,7 +87,7 @@ class CSVBatchIterator:
         Raises:
             StopIteration: When all files have been processed.
         """
-        batch = []
+        batch: List[dict[str, Any]] = []
 
         # Keep reading rows until we have a full batch or reach end of
         # all files
@@ -106,7 +106,8 @@ class CSVBatchIterator:
 
                 csv_file = self._csv_files[self._current_file_index]
                 self._current_file_handle = open(csv_file, "r", newline="", encoding="utf-8")
-                self._current_reader = csv.DictReader(self._current_file_handle)
+                if self._current_file_handle is not None:
+                    self._current_reader = csv.DictReader(self._current_file_handle)
                 self._current_file_index += 1
 
             # Try to read a row from the current file
@@ -201,7 +202,7 @@ class CSVBatchGeneratorIterator:
         csv_files = sorted(self.folder_path.glob("*.csv"))
 
         for csv_file in csv_files:
-            batch = []
+            batch: List[dict] = []
             try:
                 with open(csv_file, "r", newline="", encoding="utf-8") as f:
                     reader = csv.DictReader(f)
