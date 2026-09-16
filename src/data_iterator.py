@@ -7,8 +7,13 @@ ML workflows.
 """
 
 import csv
+import logging
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, TextIO
+
+from src.utils import CSVResourceManager
+
+logger = logging.getLogger(__name__)
 
 
 class CSVBatchIterator:
@@ -204,8 +209,8 @@ class CSVBatchGeneratorIterator:
         for csv_file in csv_files:
             batch: List[dict] = []
             try:
-                with open(csv_file, "r", newline="", encoding="utf-8") as f:
-                    reader = csv.DictReader(f)
+                with CSVResourceManager(csv_file) as fd:
+                    reader = csv.DictReader(fd)
                     for row in reader:
                         batch.append(row)
                         if len(batch) >= self.batch_size:
@@ -215,7 +220,7 @@ class CSVBatchGeneratorIterator:
                 # Yield remaining rows if any
                 if batch:
                     yield batch
-            except (IOError, OSError) as e:
+            except (IOError, OSError) as exc:
                 # Log the error and continue with next file
-                print(f"Warning: Could not read file {csv_file}: {e}")
+                logger.warning("Could not read file %s: %s", csv_file, exc)
                 continue

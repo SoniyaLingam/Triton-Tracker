@@ -10,6 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Iterable, List, Union
 
+from src.utils import timeit
+
 
 class Step(ABC):
     """Abstract contract for every processing step in a pipeline."""
@@ -140,6 +142,7 @@ class Pipeline:
             validated_steps.append(step)
         self.steps = validated_steps
 
+    @timeit
     def run(self, data: Any) -> Any:
         """Run each step sequentially and return the final transformed data."""
         current = data

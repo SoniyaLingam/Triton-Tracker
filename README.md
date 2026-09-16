@@ -946,3 +946,169 @@ batch_size: Input should be a valid integer.
 - [ ] Create Jupyter notebooks for exploration
 - [ ] Build model training framework
 
+---
+
+# Day 5 — Decorators & Resource Management
+
+## Overview
+
+Day 5 adds reusable Python patterns that are widely used in production systems: decorators, a context manager, and `functools.lru_cache`. These ideas help with timing, retry logic, cleanup, and performance tuning without changing the overall Tracker pipeline design.
+
+## What is a decorator?
+
+A decorator wraps a function and adds behavior before or after the original function runs. In Python, decorators are a clean way to extend functions without changing their core implementation.
+
+```python
+@timeit
+def process_data(rows):
+    return rows
+```
+
+The `@timeit` decorator measures how long `process_data()` takes to execute and logs the result.
+
+## `@timeit`
+
+The `timeit` decorator does the following:
+
+- records the start time
+- runs the wrapped function
+- calculates the elapsed duration
+- logs the function name and elapsed time
+- returns the original result
+- preserves the original metadata with `functools.wraps`
+
+This is useful when you want performance visibility during data processing but do not want to clutter the function body with timing code.
+
+### Example
+
+```python
+from src.utils import timeit
+
+@timeit
+def clean_rows(rows):
+    return [row.strip() for row in rows]
+```
+
+## `@retry(max_attempts=N)`
+
+The `retry` decorator is used for operations that may fail temporarily, such as reading a file or touching a resource that is not stable yet. It retries the same function call up to a fixed number of times.
+
+### Behavior
+
+- validates that `max_attempts` is a positive integer
+- executes the original function
+- retries if an exception is raised
+- re-raises the final exception only after the last allowed attempt
+- logs every retry attempt with `logging`
+
+### Example
+
+```python
+from src.utils import retry
+
+@retry(max_attempts=3)
+def read_data():
+    return "loaded"
+```
+
+In Tracker, this pattern is used for file-based CSV reads via `read_csv_rows_with_retry()`.
+
+## Why `functools.wraps` matters
+
+When a decorator wraps a function, Python normally replaces the original function metadata with the wrapper metadata. `functools.wraps` copies attributes such as:
+
+- `__name__`
+- `__doc__`
+- `__module__`
+- `__wrapped__`
+
+This is important because it keeps debugging, introspection, and documentation readable. It also makes testing and frameworks behave as though the original function is still there.
+
+## Context managers
+
+A context manager guarantees that cleanup happens even when an exception is raised. This is valuable for files, sockets, database connections, and any resource that must be closed.
+
+```python
+with CSVResourceManager(path) as handle:
+    rows = handle.read()
+```
+
+The context manager ensures the file is closed even if reading fails.
+
+## Why resource cleanup matters
+
+If a file or connection is left open, the program may:
+
+- leak file handles
+- keep memory in use longer than necessary
+- behave unpredictably under repeated runs
+- make debugging harder when exceptions happen mid-process
+
+The Tracker project uses a `CSVResourceManager` to guarantee the CSV handle is closed in both normal and exceptional flows.
+
+## `lru_cache`
+
+`functools.lru_cache` caches results for deterministic function calls. This can dramatically improve performance when the same inputs repeat often.
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def normalize_feature_name(name):
+    return name.strip().lower().replace(" ", "_")
+```
+
+### When caching is useful
+
+- the function is deterministic
+- inputs repeat often
+- the computation is expensive
+- the result does not depend on mutable external state
+
+### Dangers of careless caching
+
+Caching can become a problem when:
+
+- results depend on mutable or changing external state
+- inputs are unbounded, causing the cache to grow too large
+- data becomes stale and no longer matches the current environment
+- memory use grows unexpectedly because many large results are kept around
+
+That is why the Tracker example only caches a simple, deterministic normalization function rather than caching pipeline results with changing inputs.
+
+## How these concepts were applied to Tracker
+
+The project now includes reusable utilities in `src/utils.py`:
+
+- `timeit` — timing decorator used by the `Pipeline.run()` method
+- `retry` — retry decorator used for a realistic CSV file read workflow
+- `CSVResourceManager` — context manager that closes file handles even on exceptions
+- `normalize_feature_name` — a safe, deterministic `lru_cache` example
+
+## Day 5 files
+
+- `src/utils.py` — reusable decorators, context manager, and cached helper
+- `src/pipeline.py` — `Pipeline.run()` wrapped with `@timeit`
+- `src/data_iterator.py` — CSV file reads done through `CSVResourceManager`
+- `scripts/day5_demo.py` — demonstration of timing, retry, context management, and caching
+- `tests/test_utils.py` — tests covering Day 5 behavior
+
+## Example usage
+
+```python
+from src.pipeline import Pipeline
+from src.utils import read_csv_rows_with_retry
+
+pipeline = Pipeline([
+    CSVDataCleaner(),
+    DataFilter(field_name="score", minimum=80),
+])
+
+rows = read_csv_rows_with_retry("data/sample/sample.csv")
+result = pipeline.run(rows)
+```
+
+This keeps the pipeline architecture intact while adding reusable production patterns around it.
+
+---
+
