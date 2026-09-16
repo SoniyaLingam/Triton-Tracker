@@ -7,6 +7,7 @@ validated at runtime before it can be used by the pipeline.
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
@@ -14,6 +15,8 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from src.exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineMode(str, Enum):
@@ -95,6 +98,9 @@ def load_pipeline_config(values: Mapping[str, Any]) -> PipelineConfig:
     try:
         return PipelineConfig(**values)
     except ValidationError as exc:
+        logger.exception(
+            "Pipeline configuration is invalid.", extra={"event": "configuration_failed"}
+        )
         raise ConfigurationError("Invalid Tracker pipeline configuration.") from exc
 
 

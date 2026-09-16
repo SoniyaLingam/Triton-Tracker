@@ -1165,3 +1165,29 @@ python scripts/day6_demo.py
 
 ---
 
+### Day 7 — Structured Logging
+
+Logging records what an application is doing while it runs. Unlike `print()`, logging supports levels, timestamps, files, consistent structured fields, and full exception tracebacks. This makes it suitable for production troubleshooting and monitoring without mixing operational details into normal program output.
+
+Tracker uses the standard library only. `src/logging_config.py` centralizes configuration through `configure_logging(log_file, level, console)`. It configures the `src` logger once, replaces its prior handlers to prevent duplicate messages, writes JSON lines to an optional file, and can keep JSON console logs enabled for development.
+
+The log levels are `DEBUG` for detailed diagnostics, `INFO` for normal lifecycle events, `WARNING` for recoverable concerns such as a scheduled retry, `ERROR` for failures, and `CRITICAL` for application-threatening failures. Tracker does not log secrets, tokens, passwords, or individual CSV rows.
+
+Each JSON log record has consistent core fields plus relevant context:
+
+```json
+{"event": "step_completed", "level": "INFO", "step": "DataFilter", "duration_seconds": 0.0002, "output_records": 3}
+```
+
+JSON is easy for log-management systems to search and aggregate; plain text is easier for a person to read quickly. Tracker uses JSONL so every line is an independent structured record while the demo provides short human-facing output.
+
+`Pipeline.run()` logs `pipeline_started`, `step_started`, `step_completed`, and `pipeline_completed`, including step names, record counts when available, and durations. Its existing `@timeit` decorator now emits a `function_timed` structured event. CSV iterators and `CSVResourceManager` log file acquisition, release, batches, and read failures without logging every row.
+
+When a D6 exception or another expected operation failure occurs, `logger.exception()` records the traceback alongside an event such as `step_failed`, `resource_open_failed`, or `retry_exhausted`. The original custom exception and its chained cause are still propagated normally.
+
+For development, use `DEBUG` or `INFO` with console output. In production, use `INFO` or higher, persist JSONL logs to a managed location, avoid noisy debug logs, restrict access to logs, and never include sensitive values.
+
+Run `python scripts/day7_demo.py` to create ignored runtime logs at `logs/day7_success.jsonl` and `logs/day7_failure.jsonl`. The success file contains a complete pipeline lifecycle; the failure file contains the controlled failure event and full traceback.
+
+---
+

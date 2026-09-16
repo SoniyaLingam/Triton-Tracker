@@ -25,7 +25,14 @@ def timeit(func: F) -> F:
         start_time = time.perf_counter()
         result = func(*args, **kwargs)
         elapsed = time.perf_counter() - start_time
-        logger.info("%s executed in %.6f seconds", func.__qualname__, elapsed)
+        logger.info(
+            "Function completed.",
+            extra={
+                "event": "function_timed",
+                "function": func.__qualname__,
+                "duration_seconds": round(elapsed, 6),
+            },
+        )
         return result
 
     return wrapper  # type: ignore[return-value]
@@ -45,20 +52,25 @@ def retry(max_attempts: int) -> Callable[[F], F]:
                 except Exception as exc:  # pragma: no cover - behavior is validated by tests
                     if attempt == max_attempts:
                         logger.exception(
-                            "Function %s failed on final attempt (%s/%s): %s",
-                            func.__qualname__,
-                            attempt,
-                            max_attempts,
-                            exc,
+                            "Function failed after all retry attempts.",
+                            extra={
+                                "event": "retry_exhausted",
+                                "function": func.__qualname__,
+                                "attempt": attempt,
+                                "max_attempts": max_attempts,
+                            },
                         )
                         raise
-                    logger.warning(
-                        "Retrying %s after failure on attempt %s/%s: %s",
-                        func.__qualname__,
-                        attempt,
-                        max_attempts,
-                        exc,
-                    )
+                        logger.warning(
+                            "Retrying function after a failure.",
+                            extra={
+                                "event": "retry_scheduled",
+                                "function": func.__qualname__,
+                                "attempt": attempt,
+                                "max_attempts": max_attempts,
+                                "error": str(exc),
+                            },
+                        )
             raise RuntimeError(f"Retry loop exhausted for {func.__qualname__}")
 
         return wrapper  # type: ignore[return-value]
@@ -75,8 +87,21 @@ class CSVResourceManager(AbstractContextManager[Optional[Any]]):
         self.is_open = False
 
     def __enter__(self) -> Any:
-        self.handle = open(self.file_path, "r", newline="", encoding="utf-8")
+        logger.info(
+            "Opening CSV resource.", extra={"event": "resource_opening", "path": self.file_path}
+        )
+        try:
+            self.handle = open(self.file_path, "r", newline="", encoding="utf-8")
+        except OSError:
+            logger.exception(
+                "Unable to open CSV resource.",
+                extra={"event": "resource_open_failed", "path": self.file_path},
+            )
+            raise
         self.is_open = True
+        logger.info(
+            "CSV resource opened.", extra={"event": "resource_opened", "path": self.file_path}
+        )
         return self.handle
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
@@ -87,11 +112,14 @@ class CSVResourceManager(AbstractContextManager[Optional[Any]]):
             self.is_open = False
             self.handle = None
 
+        logger.info(
+            "CSV resource released.", extra={"event": "resource_closed", "path": self.file_path}
+        )
+
         if exc_value is not None:
             logger.exception(
-                "Resource cleanup completed for %s after an exception: %s",
-                self.file_path,
-                exc_value,
+                "CSV resource closed after an exception.",
+                extra={"event": "resource_failed", "path": self.file_path},
             )
 
 
@@ -113,10 +141,16 @@ def read_csv_rows_with_retry(file_path: Union[str, Path]) -> list[dict[str, str]
     except (OSError, UnicodeError) as exc:
         raise ResourceError(f"Unable to read CSV resource: {path}") from exc
     else:
+        logger.info(
+            "CSV rows loaded.",
+            extra={"event": "csv_rows_loaded", "path": path, "records": len(rows)},
+        )
         return rows
     finally:
         # The context manager closes its handle here even when parsing fails.
-        logger.debug("Finished CSV read attempt for %s", path)
+        logger.debug(
+            "CSV read attempt finished.", extra={"event": "csv_read_finished", "path": path}
+        )
 
 
 @lru_cache(maxsize=128)

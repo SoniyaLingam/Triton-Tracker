@@ -62,6 +62,15 @@ class CSVBatchIterator:
         self.batch_size = batch_size
         # Get all CSV files in sorted order
         self._csv_files = sorted(self.folder_path.glob("*.csv"))
+        logger.info(
+            "CSV batch iterator initialized.",
+            extra={
+                "event": "iterator_initialized",
+                "path": self.folder_path,
+                "batch_size": self.batch_size,
+                "file_count": len(self._csv_files),
+            },
+        )
 
     def __iter__(self) -> "CSVBatchIterator":
         """
@@ -110,7 +119,18 @@ class CSVBatchIterator:
                     self._current_file_handle.close()
 
                 csv_file = self._csv_files[self._current_file_index]
-                self._current_file_handle = open(csv_file, "r", newline="", encoding="utf-8")
+                logger.info(
+                    "Opening CSV file for batch iteration.",
+                    extra={"event": "iterator_file_opening", "path": csv_file},
+                )
+                try:
+                    self._current_file_handle = open(csv_file, "r", newline="", encoding="utf-8")
+                except OSError:
+                    logger.exception(
+                        "Unable to open CSV file for batch iteration.",
+                        extra={"event": "iterator_file_failed", "path": csv_file},
+                    )
+                    raise
                 if self._current_file_handle is not None:
                     self._current_reader = csv.DictReader(self._current_file_handle)
                 self._current_file_index += 1
@@ -124,6 +144,7 @@ class CSVBatchIterator:
                 self._current_reader = None
                 continue
 
+        logger.debug("CSV batch yielded.", extra={"event": "batch_yielded", "records": len(batch)})
         return batch
 
     def _cleanup(self) -> None:
@@ -135,6 +156,10 @@ class CSVBatchIterator:
                 # File already closed or invalid handle
                 pass
             self._current_file_handle = None
+            logger.debug(
+                "CSV batch iterator resource released.",
+                extra={"event": "iterator_resource_closed", "path": self.folder_path},
+            )
         self._current_reader = None
 
     def __del__(self):
@@ -180,6 +205,14 @@ class CSVBatchGeneratorIterator:
             raise FileNotFoundError(f"Folder not found: {self.folder_path}")
 
         self.batch_size = batch_size
+        logger.info(
+            "Generator CSV iterator initialized.",
+            extra={
+                "event": "iterator_initialized",
+                "path": self.folder_path,
+                "batch_size": self.batch_size,
+            },
+        )
 
     def __iter__(self) -> Iterator[List[dict]]:
         """
@@ -214,13 +247,28 @@ class CSVBatchGeneratorIterator:
                     for row in reader:
                         batch.append(row)
                         if len(batch) >= self.batch_size:
+                            logger.debug(
+                                "CSV batch yielded.",
+                                extra={
+                                    "event": "batch_yielded",
+                                    "records": len(batch),
+                                    "path": csv_file,
+                                },
+                            )
                             yield batch
                             batch = []
 
                 # Yield remaining rows if any
                 if batch:
+                    logger.debug(
+                        "CSV batch yielded.",
+                        extra={"event": "batch_yielded", "records": len(batch), "path": csv_file},
+                    )
                     yield batch
             except (IOError, OSError) as exc:
                 # Log the error and continue with next file
-                logger.warning("Could not read file %s: %s", csv_file, exc)
+                logger.exception(
+                    "Could not read CSV file; moving to the next resource.",
+                    extra={"event": "iterator_file_failed", "path": csv_file, "error": str(exc)},
+                )
                 continue

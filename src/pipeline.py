@@ -7,11 +7,22 @@ concrete step implementation.
 
 from __future__ import annotations
 
+import logging
+import time
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, List, Union
+from typing import Any, Iterable, List, Optional, Union
 
 from src.exceptions import PipelineError, TrackerError
 from src.utils import timeit
+
+logger = logging.getLogger(__name__)
+
+
+def _record_count(data: Any) -> Optional[int]:
+    """Return a record count for common collection inputs without consuming iterators."""
+    if isinstance(data, (list, tuple, set, dict)):
+        return len(data)
+    return None
 
 
 class Step(ABC):
@@ -147,15 +158,58 @@ class Pipeline:
     def run(self, data: Any) -> Any:
         """Run each step sequentially and return the final transformed data."""
         current = data
+        started_at = time.perf_counter()
+        logger.info(
+            "Pipeline started.",
+            extra={
+                "event": "pipeline_started",
+                "records": _record_count(current),
+                "step_count": len(self.steps),
+            },
+        )
         for step in self.steps:
+            step_name = type(step).__name__
+            input_records = _record_count(current)
+            step_started_at = time.perf_counter()
+            logger.info(
+                "Pipeline step started.",
+                extra={"event": "step_started", "step": step_name, "input_records": input_records},
+            )
             try:
                 current = step.process(current)
             except TrackerError:
+                logger.exception(
+                    "Pipeline step failed.", extra={"event": "step_failed", "step": step_name}
+                )
+                logger.exception(
+                    "Pipeline failed.", extra={"event": "pipeline_failed", "step": step_name}
+                )
                 raise
             except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                logger.exception(
+                    "Pipeline step failed.", extra={"event": "step_failed", "step": step_name}
+                )
                 raise PipelineError(
                     f"Pipeline step {type(step).__name__} could not process the supplied data."
                 ) from exc
+            logger.info(
+                "Pipeline step completed.",
+                extra={
+                    "event": "step_completed",
+                    "step": step_name,
+                    "duration_seconds": round(time.perf_counter() - step_started_at, 6),
+                    "input_records": input_records,
+                    "output_records": _record_count(current),
+                },
+            )
+        logger.info(
+            "Pipeline completed.",
+            extra={
+                "event": "pipeline_completed",
+                "duration_seconds": round(time.perf_counter() - started_at, 6),
+                "records": _record_count(current),
+            },
+        )
         return current
 
 
