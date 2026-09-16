@@ -7,22 +7,12 @@ concrete step implementation.
 
 from __future__ import annotations
 
-import logging
-import time
 from abc import ABC, abstractmethod
 from typing import Any, Iterable, List, Optional, Union
 
 from src.exceptions import PipelineError, TrackerError
+from src.pipeline_reporting import PipelineReporter, StructuredPipelineReporter
 from src.utils import timeit
-
-logger = logging.getLogger(__name__)
-
-
-def _record_count(data: Any) -> Optional[int]:
-    """Return a record count for common collection inputs without consuming iterators."""
-    if isinstance(data, (list, tuple, set, dict)):
-        return len(data)
-    return None
 
 
 class Step(ABC):
@@ -68,19 +58,7 @@ class DataFilter(Step):
 
     def process(self, data: List[dict[str, Any]]) -> List[dict[str, Any]]:
         """Return rows whose field value is greater than or equal to minimum."""
-        filtered_rows: List[dict[str, Any]] = []
-
-        for row in data:
-            value = row.get(self.field_name)
-            if value is None:
-                continue
-            try:
-                if float(value) >= self.minimum:
-                    filtered_rows.append(row)
-            except (TypeError, ValueError):
-                continue
-
-        return filtered_rows
+        return filter_rows_by_minimum(data, self.field_name, self.minimum)
 
 
 class HighScoreFilter(Step):
@@ -92,19 +70,24 @@ class HighScoreFilter(Step):
 
     def process(self, data: List[dict[str, Any]]) -> List[dict[str, Any]]:
         """Keep only records with very high scores."""
-        filtered_rows: List[dict[str, Any]] = []
+        return filter_rows_by_minimum(data, self.field_name, self.minimum)
 
-        for row in data:
-            value = row.get(self.field_name)
-            if value is None:
-                continue
-            try:
-                if float(value) >= self.minimum:
-                    filtered_rows.append(row)
-            except (TypeError, ValueError):
-                continue
 
-        return filtered_rows
+def filter_rows_by_minimum(
+    rows: List[dict[str, Any]], field_name: str, minimum: Union[int, float]
+) -> List[dict[str, Any]]:
+    """Return rows whose selected numeric field meets a minimum value."""
+    filtered_rows: List[dict[str, Any]] = []
+    for row in rows:
+        value = row.get(field_name)
+        if value is None:
+            continue
+        try:
+            if float(value) >= minimum:
+                filtered_rows.append(row)
+        except (TypeError, ValueError):
+            continue
+    return filtered_rows
 
 
 class DataTransformer(Step):
@@ -145,72 +128,47 @@ class CSVStatisticsStep(Step):
 class Pipeline:
     """Execute a sequence of interchangeable steps in order."""
 
-    def __init__(self, steps: Iterable[Step]):
+    def __init__(self, steps: Iterable[Step], reporter: Optional[PipelineReporter] = None):
         """Store the steps that make up the processing workflow."""
+        self.steps = self._validate_steps(steps)
+        self._reporter = reporter or StructuredPipelineReporter()
+
+    @staticmethod
+    def _validate_steps(steps: Iterable[Step]) -> List[Step]:
+        """Validate the shared abstraction used by pipeline orchestration."""
         validated_steps: List[Step] = []
         for step in steps:
             if not isinstance(step, Step):
                 raise PipelineError("Every pipeline step must implement the Step interface.")
             validated_steps.append(step)
-        self.steps = validated_steps
+        return validated_steps
 
     @timeit
     def run(self, data: Any) -> Any:
         """Run each step sequentially and return the final transformed data."""
         current = data
-        started_at = time.perf_counter()
-        logger.info(
-            "Pipeline started.",
-            extra={
-                "event": "pipeline_started",
-                "records": _record_count(current),
-                "step_count": len(self.steps),
-            },
-        )
+        self._reporter.pipeline_started(current, len(self.steps))
         for step in self.steps:
-            step_name = type(step).__name__
-            input_records = _record_count(current)
-            step_started_at = time.perf_counter()
-            logger.info(
-                "Pipeline step started.",
-                extra={"event": "step_started", "step": step_name, "input_records": input_records},
-            )
-            try:
-                current = step.process(current)
-            except TrackerError:
-                logger.exception(
-                    "Pipeline step failed.", extra={"event": "step_failed", "step": step_name}
-                )
-                logger.exception(
-                    "Pipeline failed.", extra={"event": "pipeline_failed", "step": step_name}
-                )
-                raise
-            except (AttributeError, KeyError, TypeError, ValueError) as exc:
-                logger.exception(
-                    "Pipeline step failed.", extra={"event": "step_failed", "step": step_name}
-                )
-                raise PipelineError(
-                    f"Pipeline step {type(step).__name__} could not process the supplied data."
-                ) from exc
-            logger.info(
-                "Pipeline step completed.",
-                extra={
-                    "event": "step_completed",
-                    "step": step_name,
-                    "duration_seconds": round(time.perf_counter() - step_started_at, 6),
-                    "input_records": input_records,
-                    "output_records": _record_count(current),
-                },
-            )
-        logger.info(
-            "Pipeline completed.",
-            extra={
-                "event": "pipeline_completed",
-                "duration_seconds": round(time.perf_counter() - started_at, 6),
-                "records": _record_count(current),
-            },
-        )
+            current = self._run_step(step, current)
+        self._reporter.pipeline_completed(current)
         return current
+
+    def _run_step(self, step: Step, data: Any) -> Any:
+        """Execute one step while preserving Tracker error context."""
+        step_name = type(step).__name__
+        self._reporter.step_started(step_name, data)
+        try:
+            result = step.process(data)
+        except TrackerError:
+            self._reporter.step_failed(step_name)
+            raise
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            self._reporter.step_failed(step_name)
+            raise PipelineError(
+                f"Pipeline step {step_name} could not process the supplied data."
+            ) from exc
+        self._reporter.step_completed(step_name, data, result)
+        return result
 
 
 __all__ = [
@@ -221,5 +179,8 @@ __all__ = [
     "DataTransformer",
     "HighScoreFilter",
     "Pipeline",
+    "PipelineReporter",
     "Step",
+    "StructuredPipelineReporter",
+    "filter_rows_by_minimum",
 ]

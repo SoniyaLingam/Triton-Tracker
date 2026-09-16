@@ -61,16 +61,16 @@ def retry(max_attempts: int) -> Callable[[F], F]:
                             },
                         )
                         raise
-                        logger.warning(
-                            "Retrying function after a failure.",
-                            extra={
-                                "event": "retry_scheduled",
-                                "function": func.__qualname__,
-                                "attempt": attempt,
-                                "max_attempts": max_attempts,
-                                "error": str(exc),
-                            },
-                        )
+                    logger.warning(
+                        "Retrying function after a failure.",
+                        extra={
+                            "event": "retry_scheduled",
+                            "function": func.__qualname__,
+                            "attempt": attempt,
+                            "max_attempts": max_attempts,
+                            "error": str(exc),
+                        },
+                    )
             raise RuntimeError(f"Retry loop exhausted for {func.__qualname__}")
 
         return wrapper  # type: ignore[return-value]
