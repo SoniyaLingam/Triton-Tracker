@@ -611,6 +611,212 @@ The iterator automatically handles:
 
 ---
 
+# Day 3 — OOP for Pipelines: Composition Over Inheritance
+
+## Overview
+
+Day 3 introduces a small, production-friendly pipeline design built from interchangeable processing steps. The main idea is that a `Pipeline` owns a list of `Step` objects and calls each step in order. The pipeline does not know the concrete step classes or their internal logic.
+
+### Why this matters
+
+In data and ML systems, common workflows include cleaning, filtering, transforming, feature engineering, and validation. A pipeline architecture makes these stages easy to swap, extend, and test without rewriting the orchestrator.
+
+## Step Interface
+
+The shared abstraction is implemented by the `Step` class in `src/pipeline.py`.
+
+```python
+from abc import ABC, abstractmethod
+
+class Step(ABC):
+    @abstractmethod
+    def process(self, data):
+        ...
+```
+
+This defines the contract that every pipeline stage must support. Concrete steps such as `CSVDataCleaner`, `DataFilter`, and `DataTransformer` implement the same interface, so the pipeline can treat them uniformly.
+
+## Composition vs Inheritance
+
+### Composition
+
+`Pipeline` uses composition because the pipeline has a collection of steps:
+
+```python
+pipeline = Pipeline([
+    CSVDataCleaner(),
+    DataFilter(field_name="score", minimum=80),
+    DataTransformer(),
+])
+```
+
+Here, the pipeline is built from `Step` objects rather than inheriting from a specific step class. This is the correct fit when you want reusable, interchangeable components.
+
+### Inheritance
+
+Inheritance means a subclass is a specialized version of its parent class:
+
+```python
+class Animal:
+    pass
+
+class Dog(Animal):
+    pass
+```
+
+A `Dog` is an `Animal`, which is useful for real-world taxonomies. It is not always the best choice for data-processing pipelines, where a sequence of operations is more naturally represented as a list of independent components.
+
+### Why deep inheritance is risky in data/ML code
+
+Deep inheritance chains can become difficult to maintain because:
+- behavior is spread across many classes
+- each subclass may inherit assumptions from the hierarchy
+- debugging becomes harder when small changes affect multiple layers
+- data-processing code often needs runtime flexibility instead of rigid type structure
+
+For a pipeline, composition is clearer and safer than building a large inheritance tree.
+
+## Encapsulation and Name Visibility
+
+Python supports encapsulation at a lightweight level:
+
+```python
+class Example:
+    name = "public"
+    _name = "single underscore"
+    __name = "double underscore"
+```
+
+- `name` is public and can be accessed freely.
+- `_name` is a convention for internal use; it is not truly private.
+- `__name` triggers Python name mangling, so it is stored differently internally.
+
+Example:
+
+```python
+obj = Example()
+print(obj.name)
+print(obj._name)
+print(obj._Example__name)
+```
+
+Python does not enforce strict private access like Java or C++. The underscore convention is a strong signal for intent, but it is not a hard security barrier.
+
+## Function vs Class
+
+Use a function when:
+- there is no state to keep
+- the operation is simple and one-off
+- behavior does not need to be customized through an object
+
+Use a class when:
+- state matters
+- multiple related operations belong together
+- the object must follow a common interface
+- you need interchangeable components
+
+In this project, the processing stages are classes because they each need to implement the same `Step` interface and behave like interchangeable pipeline components.
+
+## Composition in the Pipeline
+
+The `Pipeline` class cannot do any of the following:
+- check for `CSVDataCleaner` specifically
+- hardcode `if isinstance(step, DataFilter)`
+- know about every concrete step class individually
+
+Instead, it accepts any object that implements `Step` and runs them sequentially:
+
+```python
+class Pipeline:
+    def __init__(self, steps):
+        self.steps = steps
+
+    def run(self, data):
+        current = data
+        for step in self.steps:
+            current = step.process(current)
+        return current
+```
+
+This is composition: the pipeline has steps, rather than being a subclass of them.
+
+## Concrete Step Implementations
+
+The project includes several concrete step classes in `src/pipeline.py`:
+
+- `CSVDataCleaner` — trims whitespace and normalizes values.
+- `DataFilter` — keeps rows that satisfy a minimum threshold.
+- `HighScoreFilter` — a second filter implementation used to demonstrate runtime swapping.
+- `DataTransformer` — normalizes names and adds status metadata.
+- `AddProcessedFlagStep` — adds a new flag without changing the pipeline code.
+
+These are all independent, interchangeable `Step` implementations.
+
+## Runtime Step Swapping
+
+The same `Pipeline` class can process different combinations of steps at runtime:
+
+```python
+pipeline_a = Pipeline([
+    CSVDataCleaner(),
+    DataFilter(field_name="score", minimum=80),
+    DataTransformer(),
+])
+
+pipeline_b = Pipeline([
+    CSVDataCleaner(),
+    HighScoreFilter(field_name="score", minimum=90),
+    DataTransformer(),
+])
+```
+
+Only the list of `Step` objects changes. The `Pipeline` class itself stays the same.
+
+## Open for Extension
+
+A new step can be added without modifying the pipeline:
+
+```python
+class AddProcessedFlagStep(Step):
+    def process(self, data):
+        return [{**row, "processed": True} for row in data]
+
+pipeline = Pipeline([
+    CSVDataCleaner(),
+    AddProcessedFlagStep(),
+])
+```
+
+This satisfies the requirement that a new `Step` implementation can be plugged in with zero changes to the `Pipeline` class.
+
+## CSV Data Integration
+
+The pipeline can work directly with the Day 2 CSV batch iterator output:
+
+```python
+from src.data_iterator import CSVBatchIterator
+from src.pipeline import CSVDataCleaner, DataFilter, Pipeline
+
+iterator = CSVBatchIterator("data/sample", batch_size=10)
+for batch in iterator:
+    cleaned_pipeline = Pipeline([
+        CSVDataCleaner(),
+        DataFilter(field_name="score", minimum=80),
+    ])
+    processed_batch = cleaned_pipeline.run(batch)
+    print(processed_batch)
+```
+
+This keeps the Day 2 iterator intact while showing how Day 3 patterns fit into the existing CSV workflow.
+
+## Day 3 Files
+
+- `src/pipeline.py` — abstract `Step` interface and concrete step implementations
+- `scripts/pipeline_demo.py` — runtime swapping and extension demo
+- `tests/test_pipeline.py` — Day 3 behavior and interface validation
+
+---
+
 ## Next Steps (Day 3+)
 
 - [ ] Add data validation utilities in `src/`
