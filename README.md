@@ -1112,3 +1112,56 @@ This keeps the pipeline architecture intact while adding reusable production pat
 
 ---
 
+### Day 6 — Exception Handling
+
+An exception is Python's way of reporting that an operation could not finish normally. Exceptions form a hierarchy: project exceptions inherit from Python's `Exception`, and more specific exceptions inherit from the Tracker base class. This lets application code either handle one precise failure or catch all Tracker failures safely.
+
+Tracker adds this small hierarchy in `src/exceptions.py`:
+
+```text
+TrackerError
+├── ConfigurationError
+├── DataProcessingError
+├── ResourceError
+└── PipelineError
+```
+
+Custom exceptions make errors actionable. `ConfigurationError` describes invalid pipeline settings, `DataProcessingError` identifies invalid CSV content such as a blank header, `ResourceError` identifies file access failures, and `PipelineError` identifies invalid steps or a step that cannot process its input.
+
+#### Handling at the right layer
+
+- The configuration boundary uses `load_pipeline_config()` to translate Pydantic validation details into `ConfigurationError`.
+- The CSV utility owns file access and CSV-header validation. It converts `OSError` and decoding failures to `ResourceError`, while preserving invalid data as `DataProcessingError`.
+- `Pipeline` validates its steps and translates expected operation errors into `PipelineError`. Existing `TrackerError` instances are allowed to propagate unchanged.
+- A top-level script, `scripts/day6_demo.py`, catches `TrackerError`, displays its category, and includes the original cause when available.
+
+#### Exception chaining
+
+Tracker keeps the technical cause while adding useful context:
+
+```python
+try:
+    with CSVResourceManager(path) as handle:
+        ...
+except OSError as exc:
+    raise ResourceError(f"Unable to read CSV resource: {path}") from exc
+```
+
+The `from exc` means `ResourceError.__cause__` still contains the original `FileNotFoundError` or other operating-system error, so debugging context is not lost.
+
+#### `try` / `except` / `else` / `finally`
+
+`read_csv_rows_with_retry()` uses all four parts for a CSV read. `try` performs the file and CSV operation, `except` translates expected file and decoding errors, `else` returns rows only when no exception occurred, and `finally` logs that the read attempt ended. The nested `CSVResourceManager` has its own `finally` cleanup, so the file handle is released whether reading succeeds or fails.
+
+Avoid a bare `except:`: it would also catch programming mistakes and interrupts, hiding problems that should be investigated. Tracker catches only expected types (`OSError`, `UnicodeError`, `ValueError`, and other explicit project exceptions).
+
+Day 6 keeps the Day 5 `@retry(max_attempts=N)` behavior intact. A temporary resource failure can still be retried; after the last attempt, the same final `ResourceError` is re-raised rather than swallowed, including its chained original cause.
+
+Run the focused demonstration with:
+
+```bash
+python scripts/day6_demo.py
+```
+
+---
+

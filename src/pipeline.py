@@ -10,6 +10,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Iterable, List, Union
 
+from src.exceptions import PipelineError, TrackerError
 from src.utils import timeit
 
 
@@ -138,7 +139,7 @@ class Pipeline:
         validated_steps: List[Step] = []
         for step in steps:
             if not isinstance(step, Step):
-                raise TypeError("Every pipeline step must implement the Step interface.")
+                raise PipelineError("Every pipeline step must implement the Step interface.")
             validated_steps.append(step)
         self.steps = validated_steps
 
@@ -147,7 +148,14 @@ class Pipeline:
         """Run each step sequentially and return the final transformed data."""
         current = data
         for step in self.steps:
-            current = step.process(current)
+            try:
+                current = step.process(current)
+            except TrackerError:
+                raise
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                raise PipelineError(
+                    f"Pipeline step {type(step).__name__} could not process the supplied data."
+                ) from exc
         return current
 
 

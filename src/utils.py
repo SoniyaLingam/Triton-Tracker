@@ -10,6 +10,8 @@ from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar, Union
 
+from src.exceptions import DataProcessingError, ResourceError
+
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -97,11 +99,24 @@ class CSVResourceManager(AbstractContextManager[Optional[Any]]):
 def read_csv_rows_with_retry(file_path: Union[str, Path]) -> list[dict[str, str]]:
     """Read CSV rows and retry a few times if the file resource is temporarily unavailable."""
     rows: list[dict[str, str]] = []
-    with CSVResourceManager(file_path) as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            rows.append({key: value for key, value in row.items()})
-    return rows
+    path = Path(file_path)
+    try:
+        with CSVResourceManager(path) as handle:
+            reader = csv.DictReader(handle)
+            invalid_header = not reader.fieldnames or any(
+                not field or not field.strip() for field in reader.fieldnames
+            )
+            if invalid_header:
+                raise DataProcessingError(f"CSV file has an invalid header: {path}")
+            for row in reader:
+                rows.append({key: value for key, value in row.items()})
+    except (OSError, UnicodeError) as exc:
+        raise ResourceError(f"Unable to read CSV resource: {path}") from exc
+    else:
+        return rows
+    finally:
+        # The context manager closes its handle here even when parsing fails.
+        logger.debug("Finished CSV read attempt for %s", path)
 
 
 @lru_cache(maxsize=128)

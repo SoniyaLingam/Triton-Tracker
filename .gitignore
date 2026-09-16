@@ -161,3 +161,4 @@ ehthumbs.db
 # Project-specific
 .env.local
 .env.*.local
+.pytest-tmp/

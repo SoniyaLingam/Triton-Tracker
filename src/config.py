@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from src.exceptions import ConfigurationError
 
 
 class PipelineMode(str, Enum):
@@ -83,9 +85,23 @@ class PipelineConfig(BaseModel):
         }
 
 
+def load_pipeline_config(values: Mapping[str, Any]) -> PipelineConfig:
+    """Create a configuration and translate validation details for callers.
+
+    ``PipelineConfig`` remains directly usable when a caller needs Pydantic's
+    field-level ``ValidationError``. Application entry points can use this
+    helper to receive Tracker's stable configuration error category instead.
+    """
+    try:
+        return PipelineConfig(**values)
+    except ValidationError as exc:
+        raise ConfigurationError("Invalid Tracker pipeline configuration.") from exc
+
+
 __all__ = [
     "DeviceType",
     "PipelineConfig",
     "PipelineMode",
     "ValidationError",
+    "load_pipeline_config",
 ]
